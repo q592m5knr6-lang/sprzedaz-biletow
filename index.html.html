@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Sprzedaż biletów</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{font-family:Segoe UI,Arial;background:#f4f6fb;margin:0}
+.container{max-width:720px;margin:auto;padding:16px}
+.card{background:#fff;border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:0 10px 25px rgba(0,0,0,.05)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+button{border:none;border-radius:12px;padding:14px;font-size:16px;width:100%;margin-top:8px;cursor:pointer}
+.primary{background:#4f46e5;color:#fff}
+.cash{background:#16a34a;color:#fff}
+.cardpay{background:#2563eb;color:#fff}
+.muted{background:#e5e7eb}
+.danger{background:#dc2626;color:#fff}
+.stats{display:flex;justify-content:space-between;margin:6px 0}
+.big{font-size:22px;font-weight:bold}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:6px;border-bottom:1px solid #e5e7eb;text-align:center}
+
+.modal{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.55);
+    align-items:center;
+    justify-content:center;
+}
+.modal-box{
+    background:#fff;
+    padding:20px;
+    border-radius:16px;
+    width:90%;
+    max-width:320px;
+    text-align:center;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h2>🎟️ Sprzedaż biletów</h2>
+
+<div class="grid">
+<div class="card">
+<h3>Bilet lekcyjny</h3>
+<div class="big">40 zł</div>
+<button class="primary" onclick="start('Bilet lekcyjny',40)">Sprzedano</button>
+</div>
+
+<div class="card">
+<h3>Bilet dzienny</h3>
+<div class="big">60 zł</div>
+<button class="primary" onclick="start('Bilet dzienny',60)">Sprzedano</button>
+</div>
+</div>
+
+<div class="card">
+<h3>📊 Raport dzienny</h3>
+<div class="stats"><span>Lekcyjne</span><span id="lek">0</span></div>
+<div class="stats"><span>Dzienne</span><span id="dz">0</span></div>
+<hr>
+<div class="stats"><span>Gotówka</span><span id="got">0 zł</span></div>
+<div class="stats"><span>Karta</span><span id="kar">0 zł</span></div>
+<hr>
+<div class="stats big"><span>RAZEM</span><span id="raz">0 zł</span></div>
+
+<button class="muted" onclick="window.print()">🖨️ Druk / PDF</button>
+<button class="muted" onclick="eksportCSV()">📤 Pobierz raport (CSV)</button>
+<button class="muted" onclick="wyslijMail()">📧 Wyślij raport mailem</button>
+<button class="muted" onclick="zerujDzien()">🔁 Zeruj dzień</button>
+<button class="danger" onclick="cofnij()">⬅️ Cofnij sprzedaż</button>
+</div>
+
+<div class="card">
+<h3>📋 Transakcje</h3>
+<table>
+<thead><tr><th>Godz.</th><th>Bilet</th><th>Płatność</th><th>Kwota</th></tr></thead>
+<tbody id="lista"></tbody>
+</table>
+</div>
+
+</div>
+
+<!-- MODAL -->
+<div class="modal" id="modal">
+<div class="modal-box">
+<h3>Wybierz płatność</h3>
+<button class="cash" onclick="zatwierdz('Gotówka')">Gotówka</button>
+<button class="cardpay" onclick="zatwierdz('Karta')">Karta</button>
+<button class="muted" onclick="zamknij()">Anuluj</button>
+</div>
+</div>
+
+<script>
+const email="krzysiekbabiarz0209@gmail.com";
+const DB_NAME="sprzedazDB";
+const STORE="transakcje";
+const today=new Date().toISOString().slice(0,10);
+
+let db;
+let tempB=null,tempC=0;
+
+/* ===== INIT DB ===== */
+const req=indexedDB.open(DB_NAME,1);
+req.onupgradeneeded=e=>{
+    db=e.target.result;
+    db.createObjectStore(STORE,{keyPath:"id",autoIncrement:true});
+};
+req.onsuccess=e=>{
+    db=e.target.result;
+    refresh();
+};
+
+/* ===== UI ===== */
+function start(b,c){ tempB=b; tempC=c; modal.style.display="flex"; }
+function zamknij(){ modal.style.display="none"; }
+
+/* ===== CRUD ===== */
+function addTransakcja(obj){
+    const tx=db.transaction(STORE,"readwrite");
+    tx.objectStore(STORE).add(obj);
+    tx.oncomplete=refresh;
+}
+
+function getAll(cb){
+    const tx=db.transaction(STORE,"readonly");
+    const req=tx.objectStore(STORE).getAll();
+    req.onsuccess=()=>cb(req.result.filter(x=>x.data===today));
+}
+
+function clearToday(){
+    getAll(list=>{
+        const tx=db.transaction(STORE,"readwrite");
+        const store=tx.objectStore(STORE);
+        list.forEach(x=>store.delete(x.id));
+        tx.oncomplete=refresh;
+    });
+}
+
+function deleteLast(){
+    getAll(list=>{
+        if(!list.length) return alert("Brak sprzedaży");
+        const last=list[list.length-1];
+        const tx=db.transaction(STORE,"readwrite");
+        tx.objectStore(STORE).delete(last.id);
+        tx.oncomplete=refresh;
+    });
+}
+
+/* ===== ACTIONS ===== */
+function zatwierdz(p){
+    addTransakcja({
+        data:today,
+        czas:new Date().toLocaleTimeString(),
+        bilet:tempB,
+        platnosc:p,
+        kwota:tempC
+    });
+    zamknij();
+}
+
+function cofnij(){
+    if(confirm("Cofnąć ostatnią sprzedaż?")) deleteLast();
+}
+
+function zerujDzien(){
+    if(!confirm("Zamknąć dzień i wyzerować sprzedaż?")) return;
+    eksportCSV();
+    clearToday();
+}
+
+/* ===== RENDER ===== */
+function refresh(){
+    getAll(list=>{
+        let l=0,d=0,g=0,k=0,html="";
+        list.forEach(x=>{
+            if(x.bilet==="Bilet lekcyjny")l++;
+            if(x.bilet==="Bilet dzienny")d++;
+            if(x.platnosc==="Gotówka")g+=x.kwota;
+            if(x.platnosc==="Karta")k+=x.kwota;
+            html+=`<tr><td>${x.czas}</td><td>${x.bilet}</td><td>${x.platnosc}</td><td>${x.kwota} zł</td></tr>`;
+        });
+        lek.textContent=l; dz.textContent=d;
+        got.textContent=g+" zł"; kar.textContent=k+" zł";
+        raz.textContent=(g+k)+" zł"; lista.innerHTML=html;
+    });
+}
+
+/* ===== EXPORT ===== */
+function eksportCSV(){
+    getAll(list=>{
+        let g=0,k=0,csv="Godzina,Bilet,Płatność,Kwota\n";
+        list.forEach(x=>{
+            csv+=`${x.czas},${x.bilet},${x.platnosc},${x.kwota}\n`;
+            if(x.platnosc==="Gotówka")g+=x.kwota;
+            if(x.platnosc==="Karta")k+=x.kwota;
+        });
+        csv+=`\nPODSUMOWANIE\nGotówka,${g}\nKarta,${k}\nRAZEM,${g+k}\n`;
+        download(csv,"raport_"+today+".csv");
+    });
+}
+
+function wyslijMail(){
+    const subject=encodeURIComponent("Raport sprzedaży "+today);
+    const body=encodeURIComponent("Raport sprzedaży za dzień "+today);
+    location.href=`mailto:${email}?subject=${subject}&body=${body}`;
+}
+
+function download(c,n){
+    let a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([c]));
+    a.download=n; a.click();
+}
+</script>
+
+</body>
+</html>
